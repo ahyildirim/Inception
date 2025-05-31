@@ -1,0 +1,5 @@
+[mysqld]
+
+bind-address=0.0.0.0 #Wordpress Container'ının erişebilmesi için. Normalde MariaDB sadece 127.0.0.1(localhost) dinler, bu durumda başka bir container erişemez.
+character-set-server=utf8mb4 #Wordpress için kullanılması zorunlu olmasa da kullanılması tavsiye edilen, charset tipi. Bu tip emojiler dahil her şeyi destekler.
+collation-server=utf8mb4_general_ci
