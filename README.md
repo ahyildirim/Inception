@@ -200,7 +200,7 @@ init_mariadb(){
 	CREATE USER IF NOT EXISTS '${DB_USER_NAME}'@'%' IDENTIFIED BY '${DB_USERPASS}';
 	GRANT ALL PRIVILEGES ON \`${DB_DATABASE}\`.* TO '${DB_USER_NAME}'@'%';
 	FLUSH PRIVILEGES;
-	EOF
+EOF
 }
 
 echo  "Starting MariaDB initialization..." 
