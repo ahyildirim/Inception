@@ -1,3 +1,4 @@
+
 ## ADIM 1 - DOCKER KURULUMU
 Öncelikle Docker apt repo'sunu kurmamız gerekiyor:
 ```bash
@@ -154,51 +155,60 @@ Sonra tools dosyası içine girip bir adet sql_start.sh isimli bir dosya oluştu
 ```bash
 #!/bin/bash
 
+#Scriptte herhangi bir hata durumunda anında çıkış yapar.
 set  -e
 
-mysqld_safe  --datadir="/var/lib/mysql" &
+init_mariadb(){
+	#MariaDB sunucusunu ek güvenlikler ile ARKA PLANDA(daemon) olarak başlatır.
+	#--datadir, veritabanı dosyalarının nerede kaydedileceğini belirtir
+	mysqld_safe  --datadir="/var/lib/mysql" &
 
-# MariaDB'nin hazır olmasını bekle (maksimum 60 saniye)
-for  i  in {1..30}; do
-if  mysqladmin  ping  --silent; then
-echo  "MariaDB is up!"
-break
-fi
+	#MariaDB'ye 60 saniye boyunca ping atar ve hazır olmasını bekler, hazırsa mesajı basar.
+	#Hazır değilse hazır olması bekleniyor mesajı basasr.
+	for  i  in {1..30}; do
+		if  mysqladmin  ping  --silent; then
+			echo  "MariaDB is up!"
+			break
+		fi
 
-echo  "Waiting for MariaDB to be ready... ($i)"
-sleep  2
+		echo  "Waiting for MariaDB to be ready... ($i)"
+		sleep  2
+	done
 
-done
+	#Root şifresi olmadan bağlanmayı dener, eğer bağlantı başarılı olursa root şifresini ayarlar.
+	#2>/dev/null satırı hata mesajlarını gizler.
+	if  mysql  -u  root  -e  "SELECT 1;"  2>/dev/null; then
+		echo  "Root password not set, setting now..."
+		mysql  -u  root  <<	EOF
+		ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_ROOTPASS}';
+		FLUSH PRIVILEGES;
+	EOF
+	else
+		echo  "Root password already set or cannot connect without password."
+	fi
 
-# Root şifresi ayarlanmış mı kontrol et
-if  mysql  -u  root  -e  "SELECT 1;"  2>/dev/null; then
-echo  "Root password not set, setting now..."
-mysql  -u  root  <<EOF
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_ROOTPASS}';
-FLUSH PRIVILEGES;
-EOF
+	# Şifre ayarlandıktan sonra root şifresi ile bağlanmayı dener, bağlanamazsa hata mesajı basıp çıkar.
+	if  !  mysql  -u  root  -p"${DB_ROOTPASS}"  -e  "SELECT 1;"; then
+		echo  "ERROR: Cannot connect to MariaDB with root password. Exiting."  >&2
+		exit  1
+	fi 
 
-else
-echo  "Root password already set or cannot connect without password."
-fi
+	#Database'i ve kullanıcıyı oluşturur. Kullanıcıya oluşturduğu database'in tüm yetkilerini verir.
+	echo  "Creating database and user if not exists..."
+	mysql  -u  root  -p"${DB_ROOTPASS}"  <<EOF
+	CREATE DATABASE IF NOT EXISTS \`${DB_DATABASE}\`;
+	CREATE USER IF NOT EXISTS '${DB_USER_NAME}'@'%' IDENTIFIED BY '${DB_USERPASS}';
+	GRANT ALL PRIVILEGES ON \`${DB_DATABASE}\`.* TO '${DB_USER_NAME}'@'%';
+	FLUSH PRIVILEGES;
+	EOF
+}
 
-# Artık şifreli bağlan
-if  !  mysql  -u  root  -p"${DB_ROOTPASS}"  -e  "SELECT 1;"; then
-echo  "ERROR: Cannot connect to MariaDB with root password. Exiting."  >&2
-exit  1
-fi 
+echo  "Starting MariaDB initialization..." 
+init_mariadb 
 
-echo  "Creating database and user if not exists..."
-mysql  -u  root  -p"${DB_ROOTPASS}"  <<EOF
-CREATE DATABASE IF NOT EXISTS \`${DB_DATABASE}\`;
-CREATE USER IF NOT EXISTS '${DB_USER_NAME}'@'%' IDENTIFIED BY '${DB_USERPASS}';
-GRANT ALL PRIVILEGES ON \`${DB_DATABASE}\`.* TO '${DB_USER_NAME}'@'%';
-FLUSH PRIVILEGES;
-EOF
-
-echo  "MariaDB init finished, waiting for foreground..."
-
-wait
+#Container'ın kapanmaması için mysql processini exec ile foregrounda alıyoruz.
+echo  "Switching to MariaDB foreground process..." 
+exec mysqld_safe --datadir="/var/lib/mysql"
 ```
 
 Son olarak Dockerfile'ı dolduralım
@@ -207,8 +217,13 @@ FROM debian:bookworm-slim #Son sürüm debian, slim versiyondan.
 
 #Gerekli mariadb servisini kur
 RUN apt-get update -y && apt-get install -y \
-	mariadb-server \
-	&& apt-get clean
+		mariadb-server \
+		&& apt-get clean
+
+# MariaDB dizinlerini oluştur ve izinleri ayarla
+RUN mkdir -p /var/run/mysqld \
+		&& chown -R mysql:mysql /var/run/mysqld \
+		&& chown -R mysql:mysql /var/lib/mysql
 
 #Konfigürasyon dosyasını MariaDB konfigürasyon dosya yoluna kopyala
 COPY conf/mariadb.cnf /etc/mysql/mariadb.conf.d/50-server.cnf
@@ -217,8 +232,12 @@ COPY conf/mariadb.cnf /etc/mysql/mariadb.conf.d/50-server.cnf
 COPY tools/sql_start.sh /tmp/
 RUN chmod +x /tmp/sql_start.sh
 
-#Scripti çalıştır
-CMD ["/tmp/sql_start.sh"]
+#MariaDB portunu 3306'dan aç.
+EXPOSE 3306
+
+#Scripti dumb-init ile foregroundda çalıştır.
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["/bin/bash", "/tmp/sql_start.sh"]
 ```
 ### WORDPRESS
 
@@ -304,7 +323,7 @@ fi
 
 # PHP-FPM servisini başlatır.
 # -F → "Foreground" modunda çalıştırır. Yani arka planda daemon olarak çalışmaz.
-# Docker konteynerleri foreground'da çalışan bir process ister, yoksa konteyner hemen kapanır.
+# Container kapanmaması için PHP-FPM servisini foregroundda çalıştırır.
 php-fpm8.2  -F
 ```
 
@@ -337,3 +356,93 @@ ENTRYPOINT [ "/usr/bin/dumb-init", "--" ]
 CMD ["/bin/bash", "/tmp/setup.sh"]
 ```
 
+Şimdi ise docker-compose.yml dosyamızı oluşturalım. Docker-compose tüm dockerfile'ları tek tek başlatmamıza gerek olmadan, veya bağlantı kurmak için oluşturacağımız networkü el ile kurmamıza gerek kalmadan, volumeları el ile kurmamıza gerek kalmadan kurabildiğimiz kompakt bir docker aracıdır.
+
+```yml
+#Docker versiyonu
+version: "3.9"
+
+#Sırarı ile hangi servislerin başlatılacağı
+#İlk olarak mariadb başlatılır, çünkü wordpress mariadb'ye, nginx ise wordpress'e bağlantılıdır.
+#build -> hangi dockerfile kullanılacağı, 
+#image -> build sonrası image hangi isimde olacak
+#container_name -> Container adı
+#restart -> Container crashlenirse her zaman(sürekli) yeniden başlatmayı dene
+#env_file -> hangi env dosyasının kullanılacağı.
+#networks -> Container'ın hangi network üzerinde olacağı.
+#volumes -> Container silinse bile verilerini saklamak için oluşturulan yerler
+#ports -> Container'ın dış dünyaya hangi port ile açılacağını belirtir.
+services:
+	mariadb:
+		build:
+			context: ./requirements/mariadb
+		image: mariadb:beta
+		container_name: mariadb
+		restart: always
+		env_file:
+			- .env
+		networks:
+			- inception
+		volumes:
+			- mariadb:/var/lib/mysql
+
+	wordpress:
+		build:
+			context: ./requirements/wordpress
+		image: wordpress:beta
+		container_name: wordpress
+		restart: always
+		depends_on:
+			- mariadb
+		env_file:
+			- .env
+		networks:
+			- inception
+		volumes:
+			- wordpress:/var/www/html/wordpress
+
+	nginx:
+		build:
+			context: ./requirements/nginx
+		image: nginx:beta
+		container_name: nginx
+		restart: always
+		depends_on:
+			- wordpress
+		env_file:
+			- .env
+		networks:
+			- inception
+		volumes:
+			- wordpress:/var/www/html/wordpress
+		ports:
+			- 443:443
+
+#Containerların birbirleri ile iletişim kuracağı inception ağını oluşturur.
+#bridge tipinde bir bağlantı sağlar, bu bağlantı docker'ın default bağlantı tipidir
+#Bu bağlantı tipi sayesinde dockerlar birbirlerinden izole fakat birbirleri ile iletişimde çalışır.
+networks:
+	inception:
+		driver: bridge
+		name: inception
+
+#Containerlar için gerekli volumeları oluşturur
+#Volumelar containerlar silinse dahi verileri saklamak için kullanılır.
+#local driverda, wordpress isminde, bilgisayarda belirtilen yolda mount edilir(bağlanır).
+volumes:
+	wordpress:
+		driver: local
+		name: wordpress
+		driver_opts:
+			type: none
+			o: bind
+			device: /home/ahyildir/data/wordpress
+
+	mariadb:
+		driver: local
+		name: mariadb
+		driver_opts:
+			type: none
+			o: bind
+			device: /home/ahyildir/data/mariadb
+```
