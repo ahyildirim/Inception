@@ -37,9 +37,9 @@ Subjectte bizden istenen dosya yollarını oluşturuyoruz.
     WP_ADMIN_NAME=ahyildir
     WP_ADMINPASS=123
     WP_ADMIN_MAIL=ahyildir@student.42istanbul.com.tr
-    WP_USER_NAME=ahmet
+    WP_USER_NAME=ekin
     WP_USERPASS=321
-    WP_USER_MAIL=ahmet@hotmail.com
+    WP_USER_MAIL=ekin@hotmail.com
     WP_TITLE="Inception"
     DOMAIN=ahyildir.42.fr
 ```
@@ -119,7 +119,7 @@ RUN apt-get update -y \
 #-subj sayesinde form açılmadan direkt olarak komut satırında sertifika bilgilerini vermemizi sağlar
 #Bu sayede openssl yukarıda girdiğimiz soruları sormaz.
 RUN openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
-	-subj "/C=TR/ST=KOCAELI/L=GEBZE/O=42Kocaeli/OU=Student/CN=ahyildir.42.fr" \
+	-subj "/C=TR/ST=ISTANBUL/L=SARIYER/O=42Istanbul/OU=Student/CN=ahyildir.42.fr" \
 	-keyout /etc/ssl/ahyildir.42.fr.key -out /etc/ssl/ahyildir.42.fr.crt
 
 #Bu komutla localdeki biraz önce oluşturduğumuz .conf dosyasını docker ortamında

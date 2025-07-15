@@ -59,7 +59,7 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /home/vboxuser/data/wordpress
+      device: /home/ahyildir/data/wordpress
 
   mariadb:
     driver: local
@@ -67,4 +67,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /home/vboxuser/data/mariadb
+      device: /home/ahyildir/data/mariadb
